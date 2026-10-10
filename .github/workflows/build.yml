@@ -66,7 +66,7 @@ jobs:
           cat << 'EOF' > ./build/repo.json
           {
             "name": "CloudBL - BLVietsub",
-            "description": "Kho phim Dam My BLVietsub Moi Cap Nhat - Tuong thich 100% Cloudstream Android TV Box & Mobile.",
+            "description": "Kho phim - Tuong thich 100% Cloudstream Android TV Box & Mobile.",
             "manifestVersion": 1,
             "pluginLists": [
               "https://raw.githubusercontent.com/${{ github.repository }}/builds/plugins.json"
