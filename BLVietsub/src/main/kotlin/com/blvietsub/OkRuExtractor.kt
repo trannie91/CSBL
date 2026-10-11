@@ -115,7 +115,7 @@ class OkRuExtractor : ExtractorApi() {
                 callback.invoke(
                     newExtractorLink(
                         source = name,
-                        name = "Server DL (OK.ru) - 1080p FHD",
+                        name = "Server OK (OK.ru) - 1080p FHD",
                         url = hlsManifestUrl,
                         type = ExtractorLinkType.M3U8
                     ) {
