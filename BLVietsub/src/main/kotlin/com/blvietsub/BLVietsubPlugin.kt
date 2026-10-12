@@ -7,15 +7,8 @@ import android.content.Context
 @CloudstreamPlugin
 class BLVietsubPlugin: Plugin() {
     override fun load(context: Context) {
-        // Đăng ký Provider BLVietsub
+        // Đăng ký Provider chính BLVietsub (Toàn bộ Extractor SSPlay, OK.ru, VK, Dailymotion được Provider nạp và trích xuất trực tiếp)
         registerMainAPI(BLVietsubProvider())
-        // Đăng ký Extractor SSPlay (1080p FHD)
-        registerExtractorAPI(SSPlayExtractor())
-        // Đăng ký Extractor OK.ru (Server OK / Server DL 1080p FHD)
-        registerExtractorAPI(OkRuExtractor())
-        // Đăng ký Extractor VK (Server VK 1080p FHD)
-        registerExtractorAPI(VkExtractor())
-        // Đăng ký Extractor Dailymotion (Server DL 1080p FHD)
-        registerExtractorAPI(DailymotionExtractor())
     }
 }
+
