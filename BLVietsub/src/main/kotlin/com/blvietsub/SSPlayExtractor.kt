@@ -13,6 +13,9 @@ class SSPlayExtractor : ExtractorApi() {
     override val mainUrl = "https://ssplay.net"
     override val requiresReferer = true
 
+    private val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+    // Hàm giải mã đa khối Dean Edwards Packer (quét qua toàn bộ các khối đóng gói trong trang)
     private fun unPackDeanEdwards(code: String): String {
         try {
             val pattern = Regex("""\}\s*\(\s*['"]([\s\S]*?)['"]\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*['"]([\s\S]*?)['"]\s*\.split\(['"]\|['"]\)""")
@@ -43,7 +46,7 @@ class SSPlayExtractor : ExtractorApi() {
                     m.value
                 }
             }
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
             return ""
         }
     }
@@ -58,16 +61,16 @@ class SSPlayExtractor : ExtractorApi() {
         val ref = referer ?: "https://blvietsub.com/"
         val headers = mapOf(
             "Referer" to ref,
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            "User-Agent" to userAgent
         )
 
         val response = try {
             app.get(targetUrl, headers = headers).text
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
             return
         }
 
-        // 1. Quét đường dẫn /SU/ trực tiếp
+        // 1. Kiểm tra trực tiếp đường dẫn /SU/ trong mã HTML
         val directSuMatch = Regex("""["'](/SU/[^"']+)["']""").find(response)?.groupValues?.get(1)
             ?: Regex("""/SU/[a-zA-Z0-9_\-./]+""").find(response)?.value
 
@@ -84,14 +87,14 @@ class SSPlayExtractor : ExtractorApi() {
                     this.quality = Qualities.P1080.value
                     this.headers = mapOf(
                         "Referer" to "https://ssplay.net/",
-                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                        "User-Agent" to userAgent
                     )
                 }
             )
             return
         }
 
-        // 2. Quét M3U8 trực tiếp
+        // 2. Tìm link .m3u8 trực tiếp
         val m3u8Match = Regex("""https?://[^\s"']+\.m3u8[^\s"']*""").find(response)?.value
         if (m3u8Match != null) {
             callback.invoke(
@@ -105,19 +108,20 @@ class SSPlayExtractor : ExtractorApi() {
                     this.quality = Qualities.P1080.value
                     this.headers = mapOf(
                         "Referer" to "https://ssplay.net/",
-                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                        "User-Agent" to userAgent
                     )
                 }
             )
             return
         }
 
-        // 3. Quét TOÀN BỘ các khối Packer (giải mã khối chứa jwplayer nguồn /SU/)
+        // 3. QUAN TRỌNG: Quét TOÀN BỘ các khối Dean Edwards Packer (ssplay có tới 5 khối eval, khối video nằm ở khối số 4)
         val packedMatches = Regex("""eval\(function\(p,a,c,k,e,d\)[\s\S]*?split\(['"]\|['"]\)\)\)""").findAll(response).toList()
         for (match in packedMatches) {
             val unpacked = unPackDeanEdwards(match.value)
             if (unpacked.isEmpty()) continue
 
+            // Tìm /SU/ trong khối script đã giải mã
             val suMatch = Regex("""["'](/SU/[^"']+)["']""").find(unpacked)?.groupValues?.get(1)
                 ?: Regex("""/SU/[a-zA-Z0-9_\-./]+""").find(unpacked)?.value
 
@@ -134,13 +138,14 @@ class SSPlayExtractor : ExtractorApi() {
                         this.quality = Qualities.P1080.value
                         this.headers = mapOf(
                             "Referer" to "https://ssplay.net/",
-                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                            "User-Agent" to userAgent
                         )
                     }
                 )
                 return
             }
 
+            // Tìm thuộc tính "file": "/SU/..." hoặc ".m3u8"
             val fileMatch = Regex("""["']file["']\s*:\s*["']([^"']+)["']""").find(unpacked)?.groupValues?.get(1)
             if (fileMatch != null && (fileMatch.contains(".m3u8") || fileMatch.contains("/SU/"))) {
                 val finalUrl = if (fileMatch.startsWith("http")) fileMatch else "https://ssplay.net$fileMatch"
@@ -155,7 +160,7 @@ class SSPlayExtractor : ExtractorApi() {
                         this.quality = Qualities.P1080.value
                         this.headers = mapOf(
                             "Referer" to "https://ssplay.net/",
-                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                            "User-Agent" to userAgent
                         )
                     }
                 )
