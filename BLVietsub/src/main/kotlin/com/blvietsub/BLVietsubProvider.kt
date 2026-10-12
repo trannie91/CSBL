@@ -1,7 +1,5 @@
 package com.blvietsub
 
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import com.fasterxml.jackson.module.kotlin.readValue
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
@@ -33,7 +31,6 @@ class BLVietsubProvider : MainAPI() {
     )
 
     private val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    private val mapper = jacksonObjectMapper()
 
     data class EpisodePayload(
         val ss: String? = null,
@@ -174,9 +171,9 @@ class BLVietsubProvider : MainAPI() {
         val year = Regex("""\((\d{4})\)""").find(title)?.groupValues?.get(1)?.toIntOrNull()
         val tags = doc.select("article a[href*=/category/], .film-info a[href*=/category/]").map { it.text().trim() }
 
-        // Bóc tách toàn bộ các nút server: hỗ trợ Server SS, Server DL, Server OK, Server VK (cả phim mới lẫn phim cũ)
+        // Bóc tách toàn bộ các nút server: hỗ trợ Server SS, Server DL, Server OK, Server VK, Server NT (cả phim mới lẫn phim cũ)
         val episodes = mutableListOf<Episode>()
-        val allServerButtons = doc.select("[data-server-url], .server-item button, .server-item a, .list-server a, .btn-episode, [data-server]")
+        val allServerButtons = doc.select("[data-server-url], .blv-server-button, .server-item button, .server-item a, .list-server a, .btn-episode, [data-server]")
 
         val epMap = linkedMapOf<Int, MutableMap<String, String>>()
 
@@ -191,7 +188,7 @@ class BLVietsubProvider : MainAPI() {
 
             if (serverUrl.isNotEmpty() && !serverUrl.startsWith("#") && !serverUrl.startsWith("javascript")) {
                 val label = btn.attr("data-server-label").ifEmpty { btn.text().trim() }
-                val numMatch = Regex("""\d+""").find(label)
+                val numMatch = Regex("""\d+""").find(label) ?: Regex("""\d+""").find(btn.text())
                 val epNum = numMatch?.value?.toIntOrNull() ?: (index + 1)
 
                 if (!epMap.containsKey(epNum)) {
@@ -199,17 +196,18 @@ class BLVietsubProvider : MainAPI() {
                 }
 
                 val lowerLabel = label.lowercase()
+                val lowerUrl = serverUrl.lowercase()
                 when {
-                    lowerLabel.contains("ss") || serverUrl.contains("ssplay.net") -> {
+                    lowerLabel.contains("ss") || lowerUrl.contains("ssplay.net") -> {
                         epMap[epNum]?.put("ss", serverUrl)
                     }
-                    lowerLabel.contains("dl") || serverUrl.contains("dailymotion") -> {
-                        epMap[epNum]?.put("dl", serverUrl)
-                    }
-                    lowerLabel.contains("ok") || serverUrl.contains("ok.ru") -> {
+                    lowerLabel.contains("ok") || lowerUrl.contains("ok.ru") -> {
                         epMap[epNum]?.put("ok", serverUrl)
                     }
-                    lowerLabel.contains("vk") || serverUrl.contains("vk.com") || serverUrl.contains("vkvideo.ru") -> {
+                    lowerLabel.contains("dl") || lowerUrl.contains("dailymotion.com") -> {
+                        epMap[epNum]?.put("dl", serverUrl)
+                    }
+                    lowerLabel.contains("vk") || lowerUrl.contains("vk.com") || lowerUrl.contains("vkvideo.ru") -> {
                         epMap[epNum]?.put("vk", serverUrl)
                     }
                     else -> {
@@ -221,14 +219,15 @@ class BLVietsubProvider : MainAPI() {
 
         if (epMap.isNotEmpty()) {
             epMap.entries.sortedBy { it.key }.forEach { (epNum, servers) ->
-                val payload = EpisodePayload(
-                    ss = servers["ss"],
-                    dl = servers["dl"],
-                    ok = servers["ok"],
-                    vk = servers["vk"],
-                    direct = servers["other"] ?: servers["ss"] ?: servers["dl"] ?: servers["ok"] ?: servers["vk"]
-                )
-                val dataJson = mapper.writeValueAsString(payload)
+                // Đóng gói JSON thuần an toàn, tương thích mọi phiên bản Android
+                val jsonParts = mutableListOf<String>()
+                servers["ss"]?.let { jsonParts.add(""""ss":"${it.replace("\"", "\\\"")}"""") }
+                servers["dl"]?.let { jsonParts.add(""""dl":"${it.replace("\"", "\\\"")}"""") }
+                servers["ok"]?.let { jsonParts.add(""""ok":"${it.replace("\"", "\\\"")}"""") }
+                servers["vk"]?.let { jsonParts.add(""""vk":"${it.replace("\"", "\\\"")}"""") }
+                val direct = servers["other"] ?: servers["ss"] ?: servers["ok"] ?: servers["dl"] ?: servers["vk"]
+                direct?.let { jsonParts.add(""""direct":"${it.replace("\"", "\\\"")}"""") }
+                val dataJson = "{" + jsonParts.joinToString(",") + "}"
 
                 val epName = if (epMap.size == 1 && (title.contains("FULL", ignoreCase = true) || !title.contains("Tập", ignoreCase = true))) {
                     "Full Movie (1080p FHD)"
@@ -244,11 +243,12 @@ class BLVietsubProvider : MainAPI() {
                 )
             }
         } else {
+            // Fallback iframe nếu không có button
             val iframes = doc.select("article iframe, .film-player iframe")
             iframes.forEachIndexed { index, iframe ->
                 val src = iframe.attr("src").trim().replace("&amp;", "&")
                 if (src.isNotEmpty()) {
-                    val payload = mapper.writeValueAsString(EpisodePayload(direct = src))
+                    val payload = """{"direct":"${src.replace("\"", "\\\"")}"}"""
                     episodes.add(
                         newEpisode(payload) {
                             this.name = "Tập ${index + 1}"
@@ -275,88 +275,96 @@ class BLVietsubProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        if (data.trim().startsWith("{")) {
+        // Trích xuất an toàn không phụ thuộc Jackson để tránh lỗi NoClassDefFoundError trên Android
+        val ssUrl = Regex(""""ss"\s*:\s*"([^"]+)"""").find(data)?.groupValues?.get(1)?.replace("\\/", "/")
+        val okUrl = Regex(""""ok"\s*:\s*"([^"]+)"""").find(data)?.groupValues?.get(1)?.replace("\\/", "/")
+        val dlUrl = Regex(""""dl"\s*:\s*"([^"]+)"""").find(data)?.groupValues?.get(1)?.replace("\\/", "/")
+        val vkUrl = Regex(""""vk"\s*:\s*"([^"]+)"""").find(data)?.groupValues?.get(1)?.replace("\\/", "/")
+        val directUrl = Regex(""""direct"\s*:\s*"([^"]+)"""").find(data)?.groupValues?.get(1)?.replace("\\/", "/")
+
+        var linkFound = false
+
+        // 1. ƯU TIÊN CAO NHẤT: Nguồn SSPlay 1080p FHD (Dành cho các phim mới)
+        // SSPlay được nạp đầu tiên để Cloudstream tự động chọn phát nguồn này trước tiên
+        if (!ssUrl.isNullOrEmpty()) {
             try {
-                val payload = mapper.readValue<EpisodePayload>(data)
-
-                // 1. Nạp Server SS: SSPlay 1080p FHD (cho phim mới có SSPlay)
-                if (!payload.ss.isNullOrEmpty()) {
-                    val ssExtractor = SSPlayExtractor()
-                    ssExtractor.getUrl(payload.ss, "$mainUrl/", subtitleCallback, callback)
+                val ssExtractor = SSPlayExtractor()
+                ssExtractor.getUrl(ssUrl, "$mainUrl/", subtitleCallback) { link ->
+                    linkFound = true
+                    callback.invoke(link)
                 }
+            } catch (t: Throwable) {}
+        }
 
-                // 2. Nạp Server DL: Dailymotion hoặc OK.ru 1080p FHD (cho phim mới có DL)
-                if (!payload.dl.isNullOrEmpty()) {
-                    val dlUrl = payload.dl
-                    when {
-                        dlUrl.contains("ok.ru") -> {
-                            val okExtractor = OkRuExtractor()
-                            okExtractor.getUrl(dlUrl, "$mainUrl/", subtitleCallback, callback)
-                        }
-                        dlUrl.contains("dailymotion") -> {
-                            val dmExtractor = DailymotionExtractor()
-                            dmExtractor.getUrl(dlUrl, "$mainUrl/", subtitleCallback, callback)
-                        }
-                        else -> {
-                            loadExtractor(dlUrl, "$mainUrl/", subtitleCallback, callback)
-                        }
+        // 2. Nguồn OK.ru 1080p FHD (Dành cho cả phim cũ và phim mới có server OK hoặc server DL là OK.ru)
+        // Nếu Server DL là OK.ru thì gộp chung vào đây để lấy chuẩn 1080p FHD cao nhất
+        val effectiveOkUrl = okUrl ?: (if (dlUrl?.contains("ok.ru") == true) dlUrl else null)
+        if (!effectiveOkUrl.isNullOrEmpty()) {
+            try {
+                val okExtractor = OkRuExtractor()
+                okExtractor.getUrl(effectiveOkUrl, "$mainUrl/", subtitleCallback) { link ->
+                    linkFound = true
+                    callback.invoke(link)
+                }
+            } catch (t: Throwable) {}
+
+            // Thử thêm extractor mặc định của Cloudstream làm dự phòng an toàn
+            try {
+                loadExtractor(effectiveOkUrl, "$mainUrl/", subtitleCallback) { link ->
+                    linkFound = true
+                    callback.invoke(link)
+                }
+            } catch (t: Throwable) {}
+        }
+
+        // 3. Nguồn Dailymotion 1080p FHD (Dành cho Server DL của phim mới)
+        if (!dlUrl.isNullOrEmpty() && dlUrl != effectiveOkUrl) {
+            try {
+                if (dlUrl.contains("dailymotion")) {
+                    val dmExtractor = DailymotionExtractor()
+                    dmExtractor.getUrl(dlUrl, "$mainUrl/", subtitleCallback) { link ->
+                        linkFound = true
+                        callback.invoke(link)
+                    }
+                } else {
+                    loadExtractor(dlUrl, "$mainUrl/", subtitleCallback) { link ->
+                        linkFound = true
+                        callback.invoke(link)
                     }
                 }
-
-                // 3. Nạp Server OK: OK.ru 1080p FHD (cho phim cũ & mới có Server OK)
-                if (!payload.ok.isNullOrEmpty() && payload.ok != payload.dl) {
-                    val okExtractor = OkRuExtractor()
-                    okExtractor.getUrl(payload.ok, "$mainUrl/", subtitleCallback, callback)
-                }
-
-                // 4. Nạp Server VK: VK 1080p FHD (cho phim cũ có Server VK)
-                if (!payload.vk.isNullOrEmpty()) {
-                    val vkExtractor = VkExtractor()
-                    vkExtractor.getUrl(payload.vk, "$mainUrl/", subtitleCallback, callback)
-                }
-
-                // 5. Nếu không có cả 4 nguồn trên, thử link direct dự phòng
-                if (payload.ss.isNullOrEmpty() && payload.dl.isNullOrEmpty() && payload.ok.isNullOrEmpty() && payload.vk.isNullOrEmpty() && !payload.direct.isNullOrEmpty()) {
-                    return loadDirectLink(payload.direct, subtitleCallback, callback)
-                }
-
-                return true
-            } catch (e: Exception) {}
+            } catch (t: Throwable) {}
         }
 
-        return loadDirectLink(data, subtitleCallback, callback)
-    }
-
-    private suspend fun loadDirectLink(
-        url: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Boolean {
-        val clean = url.replace("&amp;", "&")
-        when {
-            clean.contains("ssplay.net") || clean.contains("blvietsub") -> {
-                val ssExtractor = SSPlayExtractor()
-                ssExtractor.getUrl(clean, "$mainUrl/", subtitleCallback, callback)
-                return true
-            }
-            clean.contains("ok.ru") -> {
-                val okExtractor = OkRuExtractor()
-                okExtractor.getUrl(clean, "$mainUrl/", subtitleCallback, callback)
-                return true
-            }
-            clean.contains("vk.com") || clean.contains("vkvideo.ru") -> {
+        // 4. Nguồn VK 1080p FHD (Dành cho phim cũ dùng server VK)
+        if (!vkUrl.isNullOrEmpty()) {
+            try {
                 val vkExtractor = VkExtractor()
-                vkExtractor.getUrl(clean, "$mainUrl/", subtitleCallback, callback)
-                return true
-            }
-            clean.contains("dailymotion") -> {
-                val dmExtractor = DailymotionExtractor()
-                dmExtractor.getUrl(clean, "$mainUrl/", subtitleCallback, callback)
-                return true
-            }
-            else -> {
-                return loadExtractor(clean, "$mainUrl/", subtitleCallback, callback)
-            }
+                vkExtractor.getUrl(vkUrl, "$mainUrl/", subtitleCallback) { link ->
+                    linkFound = true
+                    callback.invoke(link)
+                }
+            } catch (t: Throwable) {}
+
+            // Thử thêm extractor mặc định của Cloudstream cho VK
+            try {
+                loadExtractor(vkUrl, "$mainUrl/", subtitleCallback) { link ->
+                    linkFound = true
+                    callback.invoke(link)
+                }
+            } catch (t: Throwable) {}
         }
+
+        // 5. Nguồn dự phòng khác (Direct link, Netu / Hqq, Hydrax) nếu có
+        val backupUrl = directUrl ?: (if (!data.startsWith("{")) data else null)
+        if (!backupUrl.isNullOrEmpty() && backupUrl != ssUrl && backupUrl != effectiveOkUrl && backupUrl != dlUrl && backupUrl != vkUrl) {
+            try {
+                loadExtractor(backupUrl, "$mainUrl/", subtitleCallback) { link ->
+                    linkFound = true
+                    callback.invoke(link)
+                }
+            } catch (t: Throwable) {}
+        }
+
+        return linkFound
     }
 }
