@@ -1,0 +1,16 @@
+[
+    {
+        "fileHash": "sha256-a5af2a6acf795d2eef4a16d61d8d275d8e7d8a7523a4cfb42a028f39c56df34d",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/trannie91/CSBL",
+        "fileSize": 35914,
+        "status": 3,
+        "authors": [
+            
+        ],
+        "version": -1,
+        "internalName": "BLVietsub",
+        "url": "https://raw.githubusercontent.com/trannie91/CSBL/builds/BLVietsub.cs3",
+        "name": "BLVietsub"
+    }
+]
