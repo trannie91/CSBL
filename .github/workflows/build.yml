@@ -27,17 +27,10 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Accept Android SDK Licenses
-        run: |
-          mkdir -p "$ANDROID_HOME/licenses" || true
-          echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" >> "$ANDROID_HOME/licenses/android-sdk-license" || true
-          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" >> "$ANDROID_HOME/licenses/android-sdk-preview-license" || true
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '8.12'
+          gradle-version: '8.5'
 
       - name: Warm up JitPack Cache
         run: |
@@ -65,15 +58,15 @@ jobs:
       - name: Collect all .cs3 plugins, repo.json and metadata to build folder
         run: |
           mkdir -p ./build
-          # Copy tất cả file .cs3 và plugins.json vào ./build an toàn 100%
+          # Copy tat ca file .cs3 va plugins.json vao ./build bang lenh GNU cp an toan
           find . -maxdepth 4 -name "*.cs3" -exec cp -t ./build/ {} + 2>/dev/null || true
           find . -maxdepth 4 -name "plugins.json" -exec cp -t ./build/ {} + 2>/dev/null || true
           
-          # Tự động tạo repo.json chuẩn theo cấu trúc Cloudstream v4 nếu chưa có
-          cat << EOF > ./build/repo.json
+          # Tu dong tao repo.json chuan Cloudstream v4
+          cat << 'EOF' > ./build/repo.json
           {
             "name": "CloudBL - BLVietsub",
-            "description": "Kho phim Đam Mỹ BLVietsub Mới Cập Nhật - Tương thích 100% Cloudstream Android TV Box & Mobile.",
+            "description": "Kho phim Dam My BLVietsub Moi Cap Nhat - Tuong thich 100% Cloudstream Android TV Box & Mobile.",
             "manifestVersion": 1,
             "pluginLists": [
               "https://raw.githubusercontent.com/${{ github.repository }}/builds/plugins.json"
@@ -81,10 +74,8 @@ jobs:
           }
           EOF
 
-          # Thêm .nojekyll để GitHub Pages / raw không bỏ qua file
           touch ./build/.nojekyll
-
-          echo "=== Danh sách file trong ./build chuẩn bị đóng gói và xuất bản ==="
+          echo "=== Danh sach file trong ./build chuan bi dong goi va xuat ban ==="
           ls -lah ./build
 
       - name: Upload Artifacts (Cho phép tải trực tiếp file .cs3 từ GitHub Actions)
